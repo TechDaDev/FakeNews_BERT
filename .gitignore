@@ -29,14 +29,14 @@ ENV/
 .vscode/
 .idea/
 
-# Data and Models (Large files)
+# Data and Models (Large files - Models now handled via Git LFS)
 data/
-saved_models/**/*.safetensors
-saved_models/**/*.bin
-saved_models/**/*.h5
-saved_models/**/*.pkl
+# saved_models/**/*.safetensors
+# saved_models/**/*.bin
+# saved_models/**/*.h5
+# saved_models/**/*.pkl
 *.csv
-*.joblib
+# *.joblib
 
 # OS
 .DS_Store
