@@ -1,0 +1,18 @@
+Model: Random_Forest
+Timestamp: 20260125_212432
+Accuracy: 0.9075
+Prediction Time: 1.5081 seconds
+
+Confusion Matrix:
+[[6495  429]
+ [ 731 4888]]
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Real       0.90      0.94      0.92      6924
+        Fake       0.92      0.87      0.89      5619
+
+    accuracy                           0.91     12543
+   macro avg       0.91      0.90      0.91     12543
+weighted avg       0.91      0.91      0.91     12543

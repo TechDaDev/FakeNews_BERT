@@ -1,0 +1,18 @@
+Model: Torch_FFNN
+Timestamp: 20260125_212432
+Accuracy: 0.9459
+Prediction Time: 8.2355 seconds
+
+Confusion Matrix:
+[[6689  235]
+ [ 444 5175]]
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Real       0.94      0.97      0.95      6924
+        Fake       0.96      0.92      0.94      5619
+
+    accuracy                           0.95     12543
+   macro avg       0.95      0.94      0.95     12543
+weighted avg       0.95      0.95      0.95     12543

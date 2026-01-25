@@ -1,0 +1,18 @@
+Model: Naive_Bayes
+Timestamp: 20260125_212432
+Accuracy: 0.8422
+Prediction Time: 0.0094 seconds
+
+Confusion Matrix:
+[[6601  323]
+ [1656 3963]]
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Real       0.80      0.95      0.87      6924
+        Fake       0.92      0.71      0.80      5619
+
+    accuracy                           0.84     12543
+   macro avg       0.86      0.83      0.83     12543
+weighted avg       0.86      0.84      0.84     12543

@@ -1,0 +1,7 @@
+{
+  "model_name": "distilbert-base-uncased",
+  "accuracy": 0.9920244122338581,
+  "epoch": 3,
+  "batch_size": 16,
+  "timestamp": "20260125_212125"
+}
