@@ -417,16 +417,16 @@ def extract_text_from_url(url):
             script.decompose()
             
         # Get title and article text
-        title = soup.title.string if soup.title else ""
+        title = soup.title.string.strip() if soup.title else "Untitled Article"
         
         # Try to find main article content
         paragraphs = soup.find_all('p')
         article_text = "\n".join([p.get_text() for p in paragraphs if len(p.get_text()) > 20])
         
-        full_content = f"{title}\n\n{article_text}"
-        return full_content.strip()
+        full_content = f"{title}\n\n{article_text.strip()}"
+        return title, full_content.strip()
     except Exception as e:
-        return f"Error: Could not extract content from URL. {str(e)}"
+        return None, f"Error: Could not extract content from URL. {str(e)}"
 
 # --- Model Loading ---
 MODEL_PATH = "/home/zeus3000/Downloads/Fake_News_Detection/saved_models/model_runs/BERT_20260125_212125"
@@ -499,12 +499,13 @@ with col_center:
 # --- Analysis Logic ---
 if detect_btn:
     content_to_analyze = ""
+    scraped_title = ""
     source_info = "Manual Input"
     
     if is_url:
         if input_url.strip():
             with st.spinner("🌐 Fetching article content..."):
-                content_to_analyze = extract_text_from_url(input_url)
+                scraped_title, content_to_analyze = extract_text_from_url(input_url)
                 source_info = f"URL: {input_url}"
                 if content_to_analyze.startswith("Error:"):
                     st.error(content_to_analyze)
@@ -591,9 +592,9 @@ if detect_btn:
                 
                 # Token Details Expander
                 with st.expander("🔬 View Scraped Content & Technical Details"):
-                    if is_url:
-                        st.info("Showing content extracted from the provided link:")
-                        st.markdown(f"```text\n{content_to_analyze[:1000]}{'...' if len(content_to_analyze) > 1000 else ''}\n```")
+                    if is_url and scraped_title:
+                        st.info("Article Title Detected:")
+                        st.markdown(f"### {scraped_title}")
                         st.divider()
                     st.markdown(f"""
                     <div class="token-box">
