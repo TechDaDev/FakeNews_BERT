@@ -41,3 +41,6 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local model runs (removed from repo)
+saved_models/model_runs/20260125_212432/
