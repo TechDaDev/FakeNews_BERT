@@ -8,3 +8,4 @@ transformers
 tensorflow
 tqdm
 streamlit
+beautifulsoup4

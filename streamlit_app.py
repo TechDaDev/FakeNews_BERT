@@ -397,6 +397,32 @@ st.markdown("""
         border-radius: 12px !important;
         color: #ccd6f6 !important;
     }
+    
+    /* Article Title Display */
+    .article-title-container {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 16px;
+        padding: 30px;
+        margin: 20px 0;
+    }
+    
+    .article-title-label {
+        font-size: 0.85rem;
+        color: #8892b0;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 15px;
+        font-weight: 600;
+    }
+    
+    .article-title-text {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #e6f1ff;
+        line-height: 1.4;
+        margin: 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -590,19 +616,17 @@ if detect_btn:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Token Details Expander
-                with st.expander("🔬 View Scraped Content & Technical Details"):
+                # Article Title Display (for URL analysis)
+                with st.expander("� View Article Details"):
                     if is_url and scraped_title:
-                        st.info("Article Title Detected:")
-                        st.markdown(f"### {scraped_title}")
-                        st.divider()
-                    st.markdown(f"""
-                    <div class="token-box">
-                        <strong>Token Count:</strong> {len(tokens)}<br><br>
-                        <strong>Tokens:</strong><br>
-                        {', '.join(tokens[:100])}{'...' if len(tokens) > 100 else ''}
-                    </div>
-                    """, unsafe_allow_html=True)
+                        st.markdown(f"""
+                        <div class="article-title-container">
+                            <div class="article-title-label">📰 Article Title</div>
+                            <p class="article-title-text">{scraped_title}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info("ℹ️ Article title is only available when analyzing from a URL link.")
 
 # --- Features Section ---
 st.markdown("""
