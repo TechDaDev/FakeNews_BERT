@@ -3,6 +3,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import os
 import time
+import requests
+from bs4 import BeautifulSoup
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -108,12 +110,12 @@ st.markdown("""
         margin: 0;
     }
     
-    /* Text Area Styling */
-    .stTextArea textarea {
+    /* Input Styling */
+    .stTextArea textarea, .stTextInput input {
         background: #ffffff !important;
         color: #000000 !important;
         border: 2px solid rgba(102, 126, 234, 0.3) !important;
-        border-radius: 16px !important;
+        border-radius: 12px !important;
         padding: 20px !important;
         font-size: 1rem !important;
         line-height: 1.6 !important;
@@ -121,14 +123,31 @@ st.markdown("""
         font-weight: 400 !important;
     }
     
-    .stTextArea textarea:focus {
+    .stTextArea textarea:focus, .stTextInput input:focus {
         border-color: #667eea !important;
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2) !important;
     }
     
-    .stTextArea textarea::placeholder {
-        color: #6b7280 !important;
-        opacity: 0.7 !important;
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+        background-color: transparent;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 10px 10px 0px 0px;
+        color: #8892b0;
+        font-weight: 600;
+        padding: 0px 20px;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: rgba(102, 126, 234, 0.1) !important;
+        color: #e6f1ff !important;
+        border-bottom: 2px solid #667eea !important;
     }
     
     /* Button Styling */
@@ -381,6 +400,34 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- Helper Functions ---
+@st.cache_data
+def extract_text_from_url(url):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.decompose()
+            
+        # Get title and article text
+        title = soup.title.string if soup.title else ""
+        
+        # Try to find main article content
+        paragraphs = soup.find_all('p')
+        article_text = "\n".join([p.get_text() for p in paragraphs if len(p.get_text()) > 20])
+        
+        full_content = f"{title}\n\n{article_text}"
+        return full_content.strip()
+    except Exception as e:
+        return f"Error: Could not extract content from URL. {str(e)}"
+
 # --- Model Loading ---
 MODEL_PATH = "/home/zeus3000/Downloads/Fake_News_Detection/saved_models/model_runs/BERT_20260125_212125"
 
@@ -415,47 +462,80 @@ with col_center:
     st.markdown("""
     <div class="analysis-card">
         <div class="card-header">
-            <div class="card-icon">📝</div>
+            <div class="card-icon">🔍</div>
             <div>
-                <p class="card-title">News Analysis</p>
-                <p class="card-desc">Paste your article or statement below for verification</p>
+                <p class="card-title">News Verification</p>
+                <p class="card-desc">Choose your input method to verify credibility</p>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    input_text = st.text_area(
-        label="Input Text",
-        height=200,
-        placeholder="Enter the news article, headline, or statement you want to verify...",
-        label_visibility="collapsed"
-    )
+    tabs = st.tabs(["📝 Manual Text", "🔗 Article Link"])
     
+    with tabs[0]:
+        input_text = st.text_area(
+            label="Input Text",
+            height=200,
+            placeholder="Paste the news article or statement you want to verify...",
+            label_visibility="collapsed",
+            key="manual_text"
+        )
+        is_url = False
+        
+    with tabs[1]:
+        input_url = st.text_input(
+            label="Article Link",
+            placeholder="Paste a news article URL (e.g., https://bbc.com/news/...) ",
+            label_visibility="collapsed",
+            key="url_input"
+        )
+        is_url = True
+        
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        detect_btn = st.button("🔍 Analyze Content", use_container_width=True)
+        detect_btn = st.button("🚀 Run Deep Analysis", use_container_width=True)
 
 # --- Analysis Logic ---
 if detect_btn:
-    if input_text.strip():
+    content_to_analyze = ""
+    source_info = "Manual Input"
+    
+    if is_url:
+        if input_url.strip():
+            with st.spinner("🌐 Fetching article content..."):
+                content_to_analyze = extract_text_from_url(input_url)
+                source_info = f"URL: {input_url}"
+                if content_to_analyze.startswith("Error:"):
+                    st.error(content_to_analyze)
+                    content_to_analyze = ""
+        else:
+            st.warning("⚠️ Please enter a valid URL.")
+    else:
+        content_to_analyze = input_text.strip()
+        if not content_to_analyze:
+            st.warning("⚠️ Please provide some text to analyze.")
+
+    if content_to_analyze:
         # 1. Tokenization & Terminal Summary
-        tokens = tokenizer.tokenize(input_text)
+        tokens = tokenizer.tokenize(content_to_analyze)
         
         # Terminal Output (Requested Format)
         print("\n" + "═" * 70)
         print("🔍 NEW ANALYSIS REQUEST")
         print("═" * 70)
         print(f"⏰ Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"📏 Input Length: {len(input_text)} characters")
+        print(f"🌍 Source: {source_info}")
+        print(f"📏 Input Length: {len(content_to_analyze)} characters")
         print(f"🔢 Token Count: {len(tokens)}")
         print("─" * 70 + "\n")
         
         # 2. Prediction
         with col_center:
-            with st.spinner("🧠 Analyzing with BERT..."):
-                time.sleep(0.5)  # Small delay for visual effect
+            with st.spinner("🧠 BERT is performing context analysis..."):
+                time.sleep(0.5) 
                 
-                inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
+                inputs = tokenizer(content_to_analyze, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
                 
                 with torch.no_grad():
                     outputs = model(**inputs)
@@ -479,6 +559,7 @@ if detect_btn:
                     <div class="result-card {result_class}">
                         <div class="result-icon">{icon}</div>
                         <div class="result-label">{label}</div>
+                        <p style="color: #8892b0; font-size: 0.9rem; margin-top: -10px;">Based on deep transformer contextual analysis</p>
                         <div class="confidence-container">
                             <div class="confidence-label">Confidence Score</div>
                             <div class="confidence-bar">
@@ -509,7 +590,11 @@ if detect_btn:
                 """, unsafe_allow_html=True)
                 
                 # Token Details Expander
-                with st.expander("🔬 View Technical Details"):
+                with st.expander("🔬 View Scraped Content & Technical Details"):
+                    if is_url:
+                        st.info("Showing content extracted from the provided link:")
+                        st.markdown(f"```text\n{content_to_analyze[:1000]}{'...' if len(content_to_analyze) > 1000 else ''}\n```")
+                        st.divider()
                     st.markdown(f"""
                     <div class="token-box">
                         <strong>Token Count:</strong> {len(tokens)}<br><br>
@@ -517,9 +602,6 @@ if detect_btn:
                         {', '.join(tokens[:100])}{'...' if len(tokens) > 100 else ''}
                     </div>
                     """, unsafe_allow_html=True)
-    else:
-        with col_center:
-            st.warning("⚠️ Please enter some text to analyze.")
 
 # --- Features Section ---
 st.markdown("""
@@ -530,9 +612,9 @@ st.markdown("""
         <div class="feature-desc">Utilizes DistilBERT transformer architecture for deep contextual understanding</div>
     </div>
     <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <div class="feature-title">Real-time Analysis</div>
-        <div class="feature-desc">Get instant results with our optimized inference pipeline</div>
+        <div class="feature-icon">🌐</div>
+        <div class="feature-title">URL Support</div>
+        <div class="feature-desc">Analyzes news directly from links using advanced web scraping</div>
     </div>
     <div class="feature-card">
         <div class="feature-icon">📊</div>
