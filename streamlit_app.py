@@ -507,7 +507,6 @@ with col_center:
             label_visibility="collapsed",
             key="manual_text"
         )
-        is_url = False
         
     with tabs[1]:
         input_url = st.text_input(
@@ -516,7 +515,6 @@ with col_center:
             label_visibility="collapsed",
             key="url_input"
         )
-        is_url = True
         
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
@@ -528,20 +526,21 @@ if detect_btn:
     scraped_title = ""
     source_info = "Manual Input"
     
+    # Determine which input method has content
+    is_url = bool(input_url.strip())
+    has_manual_text = bool(input_text.strip())
+    
     if is_url:
-        if input_url.strip():
-            with st.spinner("🌐 Fetching article content..."):
-                scraped_title, content_to_analyze = extract_text_from_url(input_url)
-                source_info = f"URL: {input_url}"
-                if content_to_analyze.startswith("Error:"):
-                    st.error(content_to_analyze)
-                    content_to_analyze = ""
-        else:
-            st.warning("⚠️ Please enter a valid URL.")
-    else:
+        with st.spinner("🌐 Fetching article content..."):
+            scraped_title, content_to_analyze = extract_text_from_url(input_url)
+            source_info = f"URL: {input_url}"
+            if content_to_analyze.startswith("Error:"):
+                st.error(content_to_analyze)
+                content_to_analyze = ""
+    elif has_manual_text:
         content_to_analyze = input_text.strip()
-        if not content_to_analyze:
-            st.warning("⚠️ Please provide some text to analyze.")
+    else:
+        st.warning("⚠️ Please provide either text or a URL to analyze.")
 
     if content_to_analyze:
         # 1. Tokenization & Terminal Summary
