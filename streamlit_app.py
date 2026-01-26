@@ -617,17 +617,15 @@ if detect_btn:
                 """, unsafe_allow_html=True)
                 
                 # Article Title Display (for URL analysis)
-                with st.expander("� View Article Details"):
-                    if is_url and scraped_title:
-                        st.markdown(f"""
-                        <div class="article-title-container">
-                            <div class="article-title-label">📰 Article Title</div>
-                            <p class="article-title-text">{scraped_title}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.info("ℹ️ Article title is only available when analyzing from a URL link.")
-
+                
+                # Article Title Display (for URL analysis)
+                if is_url and scraped_title:
+                    st.markdown(f"""
+                    <div class="article-title-container">
+                        <div class="article-title-label">📰 Article Title</div>
+                        <p class="article-title-text">{scraped_title}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
 # --- Features Section ---
 st.markdown("""
 <div class="features-container">
