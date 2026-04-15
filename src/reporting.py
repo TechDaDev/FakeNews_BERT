@@ -1,14 +1,19 @@
 import os, platform, json
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 from joblib import load
+
+# Root directory
+root_dir = Path(__file__).resolve().parent.parent
 
 def generate_best_model_report(results_summary, X_train, X_test, y_train, y_test, prep_stats):
     if not results_summary:
         return None
     best_model_name, best_info = max(results_summary.items(), key=lambda x: x[1]['accuracy'])
     run_dir = best_info['run_dir']
-    vectorizer = load('tfidf_vectorizer.pkl')
+    vectorizer_path = root_dir / "saved_models" / "tfidf_vectorizer.pkl"
+    vectorizer = load(vectorizer_path)
     vocab_size = len(vectorizer.vocabulary_)
     env_info = {
         'Platform': platform.platform(),
@@ -87,7 +92,7 @@ def generate_best_model_report(results_summary, X_train, X_test, y_train, y_test
     md_lines.append(f"# Best Model Report: {best_model_name}\n")
     md_lines.append(f"Generated on: {best_info['timestamp']}\n")
     md_lines.append("## 1. Dataset & Preprocessing\n")
-    md_lines.append("Source file: WELFake_Dataset.csv")
+    md_lines.append("Source file: combined_TF_data.csv")
     md_lines.append("Label inversion applied (original labels flipped so internal mapping 0=Real,1=Fake).")
     md_lines.append("Preprocessing: drop NaN (text/label), remove empty texts, remove duplicate texts (first kept).\n")
     md_lines.append("### Statistics")

@@ -5,13 +5,22 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
+from joblib import load
+from src.predict_utils import predict_with_model, compute_token_stats
+from pathlib import Path
+
+# --- Constants & Paths ---
+ROOT_DIR = Path(__file__).resolve().parent
+BERT_PATH = "/home/zeus3000/Downloads/Fake_News_Detection/saved_models/model_runs/BERT_20260125_212125"
+SKLEARN_PATH = ROOT_DIR / "saved_models" / "model_runs" / "20260128_221955" / "LinearSVC_20260128_221955.pkl"
+VECTORIZER_PATH = ROOT_DIR / "saved_models" / "tfidf_vectorizer.pkl"
 
 # --- Page Configuration ---
 st.set_page_config(
     page_title="VerifyAI | Fake News Detection",
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # --- Premium Custom Styling ---
@@ -455,30 +464,63 @@ def extract_text_from_url(url):
         return None, f"Error: Could not extract content from URL. {str(e)}"
 
 # --- Model Loading ---
-MODEL_PATH = "/home/zeus3000/Downloads/Fake_News_Detection/saved_models/model_runs/BERT_20260125_212125"
-
+# --- Model Initialization ---
 @st.cache_resource
-def load_assets():
-    if not os.path.exists(MODEL_PATH):
+def load_bert_assets():
+    if not os.path.exists(BERT_PATH):
         return None, None
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+    tokenizer = AutoTokenizer.from_pretrained(BERT_PATH)
+    model = AutoModelForSequenceClassification.from_pretrained(BERT_PATH)
     model.eval()
     return tokenizer, model
 
-tokenizer, model = load_assets()
+@st.cache_resource
+def load_sklearn_assets():
+    if not os.path.exists(SKLEARN_PATH):
+        return None, None
+    model = load(SKLEARN_PATH)
+    vectorizer = load(VECTORIZER_PATH)
+    return model, vectorizer
+
+# --- Sidebar Configuration ---
+with st.sidebar:
+    st.markdown("### 🛠️ Model Configuration")
+    model_choice = st.radio(
+        "Choose Detection Engine:",
+        ["BERT (Deep Context)", "LinearSVC (Statistical)"],
+        index=0,
+        help="BERT uses transformer technology for deep semantic analysis. LinearSVC uses statistical word frequencies (TF-IDF)."
+    )
+    
+    st.markdown("---")
+    st.markdown("### 📊 Model Details")
+    if model_choice == "BERT (Deep Context)":
+        st.info("**Model:** DistilBERT\n\n**Training:** 2026-01-25\n\n**Best For:** Nuanced context and long-form articles.")
+    else:
+        st.info("**Model:** LinearSVC\n\n**Training:** 2026-01-28\n\n**Best For:** Fast analysis and clear-cut patterns.")
+
+# Load appropriate assets
+if model_choice == "BERT (Deep Context)":
+    tokenizer_bert, model_bert = load_bert_assets()
+    model_sklearn, vectorizer_sklearn = None, None
+else:
+    tokenizer_bert, model_bert = None, None
+    model_sklearn, vectorizer_sklearn = load_sklearn_assets()
 
 # --- Hero Section ---
-st.markdown("""
+st.markdown(f"""
 <div class="hero-container">
-    <div class="hero-badge">🤖 Powered by BERT</div>
+    <div class="hero-badge">🤖 Powered by {"BERT" if model_choice == "BERT (Deep Context)" else "LinearSVC"}</div>
     <h1 class="hero-title">VerifyAI</h1>
-    <p class="hero-subtitle">Advanced fake news detection using state-of-the-art transformer technology</p>
+    <p class="hero-subtitle">Advanced fake news detection using {"state-of-the-art transformer" if model_choice == "BERT (Deep Context)" else "high-performance statistical"} technology</p>
 </div>
 """, unsafe_allow_html=True)
 
-if not tokenizer or not model:
-    st.error(f"⚠️ Model not found at `{MODEL_PATH}`. Please ensure the BERT model is trained and saved.")
+if model_choice == "BERT (Deep Context)" and (not tokenizer_bert or not model_bert):
+    st.error(f"⚠️ BERT Model not found at `{BERT_PATH}`. Please check the path.")
+    st.stop()
+if model_choice == "LinearSVC (Statistical)" and (not model_sklearn or not vectorizer_sklearn):
+    st.error(f"⚠️ Sklearn Model/Vectorizer not found at `{SKLEARN_PATH}`. Please check the path.")
     st.stop()
 
 # --- Main Analysis Section ---
@@ -543,37 +585,53 @@ if detect_btn:
         st.warning("⚠️ Please provide either text or a URL to analyze.")
 
     if content_to_analyze:
-        # 1. Tokenization & Terminal Summary
-        tokens = tokenizer.tokenize(content_to_analyze)
+        # 1. Tokenization & Stats Calculation
+        if model_choice == "BERT (Deep Context)":
+            tokens = tokenizer_bert.tokenize(content_to_analyze)
+            num_tokens = len(tokens)
+            real_prob = 0.0
+            fake_prob = 0.0
+        else:
+            stats = compute_token_stats(vectorizer_sklearn, content_to_analyze)
+            num_tokens = stats['token_count']
         
-        # Terminal Output (Requested Format)
+        # Terminal Output
         print("\n" + "═" * 70)
-        print("🔍 NEW ANALYSIS REQUEST")
+        print(f"🔍 NEW ANALYSIS REQUEST ({model_choice})")
         print("═" * 70)
         print(f"⏰ Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"🌍 Source: {source_info}")
         print(f"📏 Input Length: {len(content_to_analyze)} characters")
-        print(f"🔢 Token Count: {len(tokens)}")
+        print(f"🔢 Token Count: {num_tokens}")
         print("─" * 70 + "\n")
         
         # 2. Prediction
         with col_center:
-            with st.spinner("🧠 BERT is performing context analysis..."):
+            with st.spinner(f"🧠 Analysis in progress using {model_choice}..."):
                 time.sleep(0.5) 
                 
-                inputs = tokenizer(content_to_analyze, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
-                
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    logits = outputs.logits
-                    prediction = torch.argmax(logits, dim=1).item()
-                    probs = torch.nn.functional.softmax(logits, dim=1)
-                    confidence = probs[0][prediction].item()
-                    real_prob = probs[0][0].item()
-                    fake_prob = probs[0][1].item()
-                
-                # Mapping: 0=Real, 1=Fake
-                is_fake = prediction == 1
+                if model_choice == "BERT (Deep Context)":
+                    inputs = tokenizer_bert(content_to_analyze, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
+                    with torch.no_grad():
+                        outputs = model_bert(**inputs)
+                        logits = outputs.logits
+                        prediction = torch.argmax(logits, dim=1).item()
+                        probs = torch.nn.functional.softmax(logits, dim=1)
+                        confidence = probs[0][prediction].item()
+                        real_prob = probs[0][0].item()
+                        fake_prob = probs[0][1].item()
+                    is_fake = prediction == 1
+                else:
+                    # Use the predict_with_model helper for Sklearn
+                    label_str, fake_prob = predict_with_model(
+                        SKLEARN_PATH, content_to_analyze, return_score=True, 
+                        vectorizer_path=VECTORIZER_PATH
+                    )
+                    real_prob = 1.0 - fake_prob
+                    is_fake = label_str == "Fake"
+                    confidence = fake_prob if is_fake else real_prob
+
+                # Mapping Logic for UI
                 result_class = "result-fake" if is_fake else "result-real"
                 label = "FAKE NEWS DETECTED" if is_fake else "VERIFIED AUTHENTIC"
                 icon = "🚨" if is_fake else "✅"
@@ -601,7 +659,7 @@ if detect_btn:
                 st.markdown(f"""
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-value">{len(tokens)}</div>
+                        <div class="stat-value">{num_tokens}</div>
                         <div class="stat-label">Tokens Analyzed</div>
                     </div>
                     <div class="stat-card">
@@ -640,8 +698,8 @@ st.markdown("""
     </div>
     <div class="feature-card">
         <div class="feature-icon">📊</div>
-        <div class="feature-title">Detailed Metrics</div>
-        <div class="feature-desc">View confidence scores, probabilities, and token breakdowns</div>
+        <div class="feature-title">Multi-Model engine</div>
+        <div class="feature-desc">Switch between BERT transformer and LinearSVC statistical models in the sidebar</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -651,7 +709,7 @@ st.markdown("""
 <div class="footer">
     <p class="footer-text">
         Built with ❤️ using Streamlit & Hugging Face Transformers<br>
-        Model: DistilBERT fine-tuned on WELFake Dataset
+        Model: DistilBERT (Contextual) & LinearSVC (Statistical)
     </p>
 </div>
 """, unsafe_allow_html=True)

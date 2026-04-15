@@ -1,0 +1,18 @@
+Model: LinearSVC
+Timestamp: 20260128_221955
+Accuracy: 0.9919
+Prediction Time: 0.0026 seconds
+
+Confusion Matrix:
+[[4215   24]
+ [  39 3543]]
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Real       0.99      0.99      0.99      4239
+        Fake       0.99      0.99      0.99      3582
+
+    accuracy                           0.99      7821
+   macro avg       0.99      0.99      0.99      7821
+weighted avg       0.99      0.99      0.99      7821

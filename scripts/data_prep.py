@@ -10,7 +10,7 @@ root_dir = Path(__file__).resolve().parent.parent
 
 def load_and_preprocess_data(csv_path: str = None, test_size: float = 0.2, random_state: int = 42):
     if csv_path is None:
-        csv_path = root_dir / "data" / "WELFake_Dataset.csv"
+        csv_path = root_dir / "data" / "combined_TF_data.csv"
     """Load and preprocess dataset with label inversion correction and cleaning.
 
     Returns
