@@ -11,9 +11,35 @@ from pathlib import Path
 
 # --- Constants & Paths ---
 ROOT_DIR = Path(__file__).resolve().parent
-BERT_PATH = "/home/zeus3000/Downloads/Fake_News_Detection/saved_models/model_runs/BERT_20260125_212125"
+DEFAULT_BERT_PATH = ROOT_DIR / "saved_models" / "model_runs" / "BERT_20260125_212125"
 SKLEARN_PATH = ROOT_DIR / "saved_models" / "model_runs" / "20260128_221955" / "LinearSVC_20260128_221955.pkl"
 VECTORIZER_PATH = ROOT_DIR / "saved_models" / "tfidf_vectorizer.pkl"
+
+
+def resolve_bert_path() -> Path:
+    env_path = os.getenv("BERT_PATH", "").strip()
+    candidates = []
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+    candidates.append(DEFAULT_BERT_PATH)
+
+    runs_dir = ROOT_DIR / "saved_models" / "model_runs"
+    if runs_dir.exists():
+        candidates.extend(sorted(runs_dir.glob("BERT_*"), reverse=True))
+
+    seen = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists() and (resolved / "config.json").exists():
+            return resolved
+
+    return DEFAULT_BERT_PATH
+
+
+BERT_PATH = resolve_bert_path()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -467,7 +493,7 @@ def extract_text_from_url(url):
 # --- Model Initialization ---
 @st.cache_resource
 def load_bert_assets():
-    if not os.path.exists(BERT_PATH):
+    if not BERT_PATH.exists():
         return None, None
     tokenizer = AutoTokenizer.from_pretrained(BERT_PATH)
     model = AutoModelForSequenceClassification.from_pretrained(BERT_PATH)
