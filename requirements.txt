@@ -5,7 +5,6 @@ joblib
 matplotlib
 torch
 transformers
-tensorflow
 tqdm
 streamlit
 beautifulsoup4
