@@ -10,10 +10,11 @@ A comprehensive fake news detection platform powered by state-of-the-art BERT tr
 ## 🌟 Features
 
 - **🎨 Premium Streamlit Web App**: Modern, glassmorphic UI with real-time fake news detection
-- **🧠 BERT-Powered Analysis**: Fine-tuned DistilBERT model for deep contextual understanding
+- **🌐 Robust Article Extraction**: Intelligent scraping using `trafilatura` and `readability` to eliminate ads and boilerplate noise
+- **🧠 BERT-Powered Analysis**: Fine-tuned DistilBERT model for deep contextual understanding with temperature scaling calibration
 - **📊 Multiple Model Support**: Traditional ML (LinearSVC, Random Forest), Deep Learning (LSTM), and Transformers
 - **⚡ Real-time Inference**: Instant predictions with confidence scores and probability breakdowns
-- **🔬 Technical Insights**: Token analysis, probability distributions, and detailed metrics
+- **🔬 Technical Insights**: Token analysis, chunk-level probability distributions, and detailed debug logs
 - **📈 Comprehensive Training Pipeline**: Organized scripts for training, evaluation, and model comparison
 
 ## 🚀 Quick Start
@@ -43,9 +44,10 @@ The app will open in your browser at `http://localhost:8501`
 ### Features of the Streamlit App
 
 - **Paste & Analyze**: Simply paste any news article or statement
+- **Verify URLs**: Input a news link; the app robustly extracts the article body, bypassing ads and cookie notices
 - **Instant Results**: Get real-time predictions (REAL vs FAKE)
-- **Confidence Metrics**: View confidence scores and probability distributions
-- **Token Analysis**: Expandable technical details showing BERT tokenization
+- **Confidence Metrics**: View model confidence scores and probability distributions
+- **Technical Breakdown**: View extracted text segments and chunk-level confidence scores
 - **Terminal Logging**: Detailed analysis logs printed to terminal for debugging
 
 ## 📁 Project Structure
@@ -143,9 +145,11 @@ python scripts/analysis/dataset_analysis.py
 - **Epochs**: 3
 - **Optimizer**: AdamW with linear warmup
 
-### Label Mapping
+### Label Mapping (Canonical)
 - `0` = **REAL NEWS** ✅
 - `1` = **FAKE NEWS** 🚨
+
+*Note: This mapping is enforced across the entire pipeline from training to Streamlit display.*
 
 ## 📊 Performance
 

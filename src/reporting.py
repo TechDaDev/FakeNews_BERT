@@ -13,6 +13,7 @@ def generate_best_model_report(results_summary, X_train, X_test, y_train, y_test
     best_model_name, best_info = max(results_summary.items(), key=lambda x: x[1]['accuracy'])
     run_dir = best_info['run_dir']
     vectorizer_path = root_dir / "saved_models" / "tfidf_vectorizer.pkl"
+
     vectorizer = load(vectorizer_path)
     vocab_size = len(vectorizer.vocabulary_)
     env_info = {
@@ -93,7 +94,8 @@ def generate_best_model_report(results_summary, X_train, X_test, y_train, y_test
     md_lines.append(f"Generated on: {best_info['timestamp']}\n")
     md_lines.append("## 1. Dataset & Preprocessing\n")
     md_lines.append("Source file: combined_TF_data.csv")
-    md_lines.append("Label inversion applied (original labels flipped so internal mapping 0=Real,1=Fake).")
+    md_lines.append("Features: Title + Text (Combined)")
+
     md_lines.append("Preprocessing: drop NaN (text/label), remove empty texts, remove duplicate texts (first kept).\n")
     md_lines.append("### Statistics")
     md_lines.append(f"- Raw rows: {prep_stats['raw_rows']}")
@@ -101,7 +103,7 @@ def generate_best_model_report(results_summary, X_train, X_test, y_train, y_test
     md_lines.append(f"- Dropped NaN: {prep_stats['dropped_nan']}")
     md_lines.append(f"- Empties removed: {prep_stats['empties_removed']}")
     md_lines.append(f"- Duplicates removed: {prep_stats['duplicates_removed']}")
-    md_lines.append("- Label distribution (0=Real,1=Fake): " + str(prep_stats['label_distribution_after_flip']))
+    md_lines.append("- Label distribution (0=Real,1=Fake): " + str(prep_stats['label_distribution']))
     md_lines.append("\n## 2. Split\n")
     md_lines.append(f"Train: {X_train.shape[0]} | Test: {X_test.shape[0]} (test_fraction={prep_stats['test_size']}, stratified={prep_stats['stratify']})\n")
     md_lines.append("## 3. TF-IDF\n")

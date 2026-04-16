@@ -5,6 +5,12 @@ joblib
 matplotlib
 torch
 transformers
+tensorflow
 tqdm
 streamlit
 beautifulsoup4
+trafilatura
+readability-lxml
+lxml_html_clean
+lxml
+requests

@@ -4,14 +4,22 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import os
 import time
 import requests
-from bs4 import BeautifulSoup
+import numpy as np
+from src.article_extraction import extract_article
+from src.prediction import (
+    decode_predictions, 
+    aggregate_chunk_predictions, 
+    LABEL_REAL, 
+    LABEL_FAKE,
+    LABEL_STR_MAP
+)
 from joblib import load
 from src.predict_utils import predict_with_model, compute_token_stats
 from pathlib import Path
 
 # --- Constants & Paths ---
 ROOT_DIR = Path(__file__).resolve().parent
-DEFAULT_BERT_PATH = ROOT_DIR / "saved_models" / "model_runs" / "BERT_20260125_212125"
+DEFAULT_BERT_PATH = ROOT_DIR / "saved_models" / "model_runs" / "BERT_20260128_115016"
 SKLEARN_PATH = ROOT_DIR / "saved_models" / "model_runs" / "20260128_221955" / "LinearSVC_20260128_221955.pkl"
 VECTORIZER_PATH = ROOT_DIR / "saved_models" / "tfidf_vectorizer.pkl"
 
@@ -119,17 +127,6 @@ st.markdown("""
         align-items: center;
         gap: 12px;
         margin-bottom: 25px;
-    }
-    
-    .card-icon {
-        width: 48px;
-        height: 48px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
     }
     
     .card-title {
@@ -461,44 +458,36 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Helper Functions ---
-@st.cache_data
-def extract_text_from_url(url):
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
-            
-        # Get title and article text
-        title = soup.title.string.strip() if soup.title else "Untitled Article"
-        
-        # Try to find main article content
-        paragraphs = soup.find_all('p')
-        article_text = "\n".join([p.get_text() for p in paragraphs if len(p.get_text()) > 20])
-        
-        full_content = f"{title}\n\n{article_text.strip()}"
-        return title, full_content.strip()
-    except Exception as e:
-        return None, f"Error: Could not extract content from URL. {str(e)}"
+# --- Temperature Scaling Placeholder ---
+TEMPERATURE = 1.0 # Can be adjusted for calibration
 
-# --- Model Loading ---
-# --- Model Initialization ---
+# --- Model Asset Loading ---
 @st.cache_resource
 def load_bert_assets():
     if not BERT_PATH.exists():
-        return None, None
+        return None, None, None, None
     tokenizer = AutoTokenizer.from_pretrained(BERT_PATH)
     model = AutoModelForSequenceClassification.from_pretrained(BERT_PATH)
+    
+    # Determine model max length
+    try:
+        model_max_len = tokenizer.model_max_length
+    except Exception:
+        try:
+            model_max_len = model.config.max_position_embeddings
+        except Exception:
+            model_max_len = 512
+
+    # Use global device preference if available
+    try:
+        from src.device import get_device
+        device = get_device()
+    except Exception:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model.to(device)
     model.eval()
-    return tokenizer, model
+    return tokenizer, model, device, model_max_len
 
 @st.cache_resource
 def load_sklearn_assets():
@@ -521,16 +510,16 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📊 Model Details")
     if model_choice == "BERT (Deep Context)":
-        st.info("**Model:** DistilBERT\n\n**Training:** 2026-01-25\n\n**Best For:** Nuanced context and long-form articles.")
+        st.info(f"**Model:** DistilBERT\n\n**Path:** {BERT_PATH.name}\n\n**Best For:** Nuanced context and long-form articles.")
     else:
         st.info("**Model:** LinearSVC\n\n**Training:** 2026-01-28\n\n**Best For:** Fast analysis and clear-cut patterns.")
 
-# Load appropriate assets
+# Load appropriate assets based on choice
 if model_choice == "BERT (Deep Context)":
-    tokenizer_bert, model_bert = load_bert_assets()
+    tokenizer_bert, model_bert, device, model_max_len = load_bert_assets()
     model_sklearn, vectorizer_sklearn = None, None
 else:
-    tokenizer_bert, model_bert = None, None
+    tokenizer_bert, model_bert, device, model_max_len = None, None, None, None
     model_sklearn, vectorizer_sklearn = load_sklearn_assets()
 
 # --- Hero Section ---
@@ -585,6 +574,8 @@ with col_center:
         )
         
     col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        debug_mode = st.checkbox("🛠️ Debug Mode", key="debug_mode")
     with col2:
         detect_btn = st.button("🚀 Run Deep Analysis", use_container_width=True)
 
@@ -593,30 +584,53 @@ if detect_btn:
     content_to_analyze = ""
     scraped_title = ""
     source_info = "Manual Input"
+    extraction_results = None
     
     # Determine which input method has content
     is_url = bool(input_url.strip())
     has_manual_text = bool(input_text.strip())
     
     if is_url:
-        with st.spinner("🌐 Fetching article content..."):
-            scraped_title, content_to_analyze = extract_text_from_url(input_url)
-            source_info = f"URL: {input_url}"
-            if content_to_analyze.startswith("Error:"):
-                st.error(content_to_analyze)
+        with st.spinner("🌐 Performing robust article extraction..."):
+            extraction_results = extract_article(input_url)
+            scraped_title = extraction_results['title']
+            content_to_analyze = extraction_results['clean_text']
+            source_info = f"URL: {extraction_results['source_domain']}"
+            
+            if extraction_results['extraction_method'] == 'failed':
+                st.error(f"❌ Extraction failed. Please check the URL or paste text manually.")
+                if extraction_results['warnings']:
+                    st.warning("\n".join(extraction_results['warnings']))
                 content_to_analyze = ""
+            
+            # Show extraction warnings if any
+            if extraction_results['warnings']:
+                with st.expander("⚠️ Extraction Warnings"):
+                    for w in extraction_results['warnings']:
+                        st.write(f"- {w}")
+            
+            # Show extracted text in expander
+            if content_to_analyze:
+                with st.expander("📄 View Extracted Article Text"):
+                    st.write(f"**Method:** {extraction_results['extraction_method']}")
+                    st.write("---")
+                    st.write(content_to_analyze)
+                    
+                # Block if too short
+                if len(content_to_analyze) < 200:
+                    st.error("🛑 Extracted content is too short for reliable classification. The page might be protected or have minimal text.")
+                    content_to_analyze = ""
+
     elif has_manual_text:
         content_to_analyze = input_text.strip()
     else:
         st.warning("⚠️ Please provide either text or a URL to analyze.")
 
     if content_to_analyze:
-        # 1. Tokenization & Stats Calculation
+        # 1. Stats Calculation
         if model_choice == "BERT (Deep Context)":
             tokens = tokenizer_bert.tokenize(content_to_analyze)
             num_tokens = len(tokens)
-            real_prob = 0.0
-            fake_prob = 0.0
         else:
             stats = compute_token_stats(vectorizer_sklearn, content_to_analyze)
             num_tokens = stats['token_count']
@@ -636,28 +650,67 @@ if detect_btn:
             with st.spinner(f"🧠 Analysis in progress using {model_choice}..."):
                 time.sleep(0.5) 
                 
+                chunk_results = []
+                
                 if model_choice == "BERT (Deep Context)":
-                    inputs = tokenizer_bert(content_to_analyze, return_tensors="pt", truncation=True, max_length=512, padding="max_length")
-                    with torch.no_grad():
-                        outputs = model_bert(**inputs)
-                        logits = outputs.logits
-                        prediction = torch.argmax(logits, dim=1).item()
-                        probs = torch.nn.functional.softmax(logits, dim=1)
-                        confidence = probs[0][prediction].item()
-                        real_prob = probs[0][0].item()
-                        fake_prob = probs[0][1].item()
-                    is_fake = prediction == 1
+                    # Adaptive chunking logic for BERT
+                    token_count = len(tokens)
+                    if token_count <= model_max_len:
+                        chunk_size = token_count
+                        chunk_overlap = 0
+                    else:
+                        chunk_size = max(min(model_max_len - 2, 256), 64)
+                        chunk_overlap = max(10, int(chunk_size * 0.2))
+                    step = max(1, chunk_size - chunk_overlap)
+                    
+                    print("\n" + "─" * 70)
+                    print(f"🧩 CHUNK ANALYSIS (Size: {chunk_size}, Overlap: {chunk_overlap})")
+                    print("─" * 70)
+                    
+                    for i in range(0, len(tokens), step):
+                        chunk_tokens = tokens[i:i + chunk_size]
+                        if not chunk_tokens: break
+                        chunk_text = tokenizer_bert.convert_tokens_to_string(chunk_tokens)
+                        
+                        inputs_chunk = tokenizer_bert(chunk_text, return_tensors="pt", truncation=True, max_length=model_max_len, padding="max_length")
+                        inputs_chunk = {k: v.to(device) for k, v in inputs_chunk.items()}
+                        
+                        with torch.no_grad():
+                            outputs_chunk = model_bert(**inputs_chunk)
+                            chunk_res = decode_predictions(outputs_chunk.logits, temperature=TEMPERATURE, debug=debug_mode)
+                            
+                        chunk_results.append({
+                            'fake_prob': chunk_res['fake_probability'],
+                            'real_prob': chunk_res['real_probability'],
+                            'label': chunk_res['predicted_label'],
+                            'text': chunk_text,
+                            'res_dict': chunk_res
+                        })
+                        print(f"Chunk {len(chunk_results):02d} | Label: {chunk_res['predicted_label']:<4} | P(Fake): {chunk_res['fake_probability']:.4f}")
+                    
+                    print("─" * 70 + "\n")
+                    agg_res = aggregate_chunk_predictions(chunk_results, threshold_strong=0.75)
+                    prediction = LABEL_FAKE if agg_res['predicted_label'] == "FAKE" else LABEL_REAL
+                    confidence = agg_res['confidence']
+                    fake_prob = agg_res['avg_fake_prob']
+                    real_prob = agg_res['avg_real_prob']
+                    num_display = len(chunk_results)
+                    aggregation_label = f"aggregated chunk-level analysis ({num_display} chunks)"
+                
                 else:
-                    # Use the predict_with_model helper for Sklearn
-                    label_str, fake_prob = predict_with_model(
+                    # LinearSVC prediction
+                    _, fake_prob = predict_with_model(
                         SKLEARN_PATH, content_to_analyze, return_score=True, 
                         vectorizer_path=VECTORIZER_PATH
                     )
                     real_prob = 1.0 - fake_prob
-                    is_fake = label_str == "Fake"
-                    confidence = fake_prob if is_fake else real_prob
+                    prediction = LABEL_FAKE if fake_prob > 0.5 else LABEL_REAL
+                    confidence = fake_prob if prediction == LABEL_FAKE else real_prob
+                    aggregation_label = "statistical feature analysis"
+                    num_display = 1
 
                 # Mapping Logic for UI
+                is_fake = prediction == LABEL_FAKE
                 result_class = "result-fake" if is_fake else "result-real"
                 label = "FAKE NEWS DETECTED" if is_fake else "VERIFIED AUTHENTIC"
                 icon = "🚨" if is_fake else "✅"
@@ -669,9 +722,9 @@ if detect_btn:
                     <div class="result-card {result_class}">
                         <div class="result-icon">{icon}</div>
                         <div class="result-label">{label}</div>
-                        <p style="color: #8892b0; font-size: 0.9rem; margin-top: -10px;">Based on deep transformer contextual analysis</p>
+                        <p style="color: #8892b0; font-size: 0.9rem; margin-top: -10px;">Based on {aggregation_label}</p>
                         <div class="confidence-container">
-                            <div class="confidence-label">Confidence Score</div>
+                            <div class="confidence-label">Model Confidence Score</div>
                             <div class="confidence-bar">
                                 <div class="confidence-fill {fill_class}" style="width: {confidence * 100}%"></div>
                             </div>
@@ -685,23 +738,20 @@ if detect_btn:
                 st.markdown(f"""
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-value">{num_tokens}</div>
-                        <div class="stat-label">Tokens Analyzed</div>
+                        <div class="stat-value">{num_display if model_choice == "BERT (Deep Context)" else num_tokens}</div>
+                        <div class="stat-label">{"Chunks" if model_choice == "BERT (Deep Context)" else "Tokens"}</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">{real_prob:.1%}</div>
-                        <div class="stat-label">Real Probability</div>
+                        <div class="stat-label">Avg Real Prob</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">{fake_prob:.1%}</div>
-                        <div class="stat-label">Fake Probability</div>
+                        <div class="stat-label">Avg Fake Prob</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Article Title Display (for URL analysis)
-                
-                # Article Title Display (for URL analysis)
                 if is_url and scraped_title:
                     st.markdown(f"""
                     <div class="article-title-container">
@@ -709,6 +759,24 @@ if detect_btn:
                         <p class="article-title-text">{scraped_title}</p>
                     </div>
                     """, unsafe_allow_html=True)
+                
+                # Debug Mode Details
+                if debug_mode:
+                    st.divider()
+                    st.subheader("🛠️ Model Debug Details")
+                    st.write(f"**Canonical Mapping:** 0=REAL, 1=FAKE")
+                    if model_choice == "BERT (Deep Context)":
+                        st.write(f"**Temperature:** {TEMPERATURE}")
+                        st.write(f"**Threshold Strong:** 0.75")
+                        st.write("#### Chunk-level Raw Output")
+                        for i, cr in enumerate(chunk_results):
+                            with st.expander(f"Chunk {i+1} Details"):
+                                st.json(cr['res_dict'])
+                                st.write("**Snippet:** " + cr['text'][:300] + "...")
+                    else:
+                        st.write("**Model Type:** LinearSVC")
+                        st.write(f"**Raw Prob(Fake):** {fake_prob:.4f}")
+
 # --- Features Section ---
 st.markdown("""
 <div class="features-container">
@@ -724,7 +792,7 @@ st.markdown("""
     </div>
     <div class="feature-card">
         <div class="feature-icon">📊</div>
-        <div class="feature-title">Multi-Model engine</div>
+        <div class="feature-title">Multi-Model Engine</div>
         <div class="feature-desc">Switch between BERT transformer and LinearSVC statistical models in the sidebar</div>
     </div>
 </div>

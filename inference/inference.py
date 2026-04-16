@@ -89,19 +89,40 @@ def _chunk_probs(model, vectorizer, tokens, chunk_size, overlap):
     probs=[]
     step = max(1, chunk_size-overlap)
     start=0
+    
+    print("\n" + "─" * 70)
+    print(f"🧩 CHUNK ANALYSIS (Size: {chunk_size}, Overlap: {overlap})")
+    print("─" * 70)
+    
     while start < len(tokens):
         seg = tokens[start:start+chunk_size]
         if not seg:
             break
         seg_text = ' '.join(seg)
         vec = vectorizer.transform([seg_text])
-        probs.append(_raw_fake_proba(model, vec))
+        p = _raw_fake_proba(model, vec)
+        probs.append(p)
+        
+        # Print chunk prediction
+        label = "FAKE" if p > 0.5 else "REAL"
+        print(f"Chunk {len(probs):02d} | Label: {label:<4} | P(Fake): {p:.4f} | Text: {seg_text[:60]}...")
+        
         start += step
+    
+    print("─" * 70 + "\n")
     return probs
 
-def predict_with_model(model, vectorizer, sample, threshold=0.5, flipped=True, return_prob=False,
-                       margin=0.02, use_chunking=False, chunk_size=250, chunk_overlap=50,
-                       length_bins=None):
+    print("─" * 70 + "\n")
+    return probs
+
+from src.prediction import (
+    LABEL_REAL, LABEL_FAKE, LABEL_STR_MAP, 
+    decode_predictions, aggregate_chunk_predictions
+)
+
+def predict_with_model(model, vectorizer, sample, threshold=0.5, return_prob=False,
+                       margin=0.02, use_chunking=False, chunk_size=25, chunk_overlap=5,
+                       length_bins=None, debug=False):
     prep = vectorizer.build_preprocessor()
     tokenizer = vectorizer.build_tokenizer()
     processed = prep(sample)
@@ -109,50 +130,69 @@ def predict_with_model(model, vectorizer, sample, threshold=0.5, flipped=True, r
     vec = vectorizer.transform([sample])
     token_len = len(tokens)
     adaptive_thr = threshold
+    
     if length_bins:
         for max_len, thr in sorted(length_bins.items()):
             if token_len <= max_len:
                 adaptive_thr = thr
                 break
+                
+    # Get raw probabilities (assuming index 1 is FAKE)
     p_fake = _raw_fake_proba(model, vec)
-    chunk_info=None
+    # Convert to logit-like structure for decode_predictions
+    # If p is prob of fake, then [1-p, p] are probs of [real, fake]
+    probs = np.array([1.0 - p_fake, p_fake])
+    # decode_predictions expects logits, but can handle probabilities if temperature=1.0 and we just want to normalize
+    # Actually, decode_predictions applies softmax. If we already have probs, we should be careful.
+    # Let's just manually construct the result to match src.prediction schema
+    
+    chunk_info = None
     if use_chunking:
-        probs = _chunk_probs(model, vectorizer, tokens, chunk_size, chunk_overlap)
-        if probs:
-            mean_p = float(np.mean(probs))
-            max_p = float(np.max(probs))
-            chunk_info = f"chunks={len(probs)} mean={mean_p:.4f} max={max_p:.4f} orig={p_fake:.4f}"
-            p_fake = mean_p
+        probs_chunks = _chunk_probs(model, vectorizer, tokens, chunk_size, chunk_overlap)
+        if probs_chunks:
+            chunk_results = []
+            for pc in probs_chunks:
+                chunk_results.append({
+                    'real_probability': 1.0 - pc,
+                    'fake_probability': pc,
+                    'predicted_label': 'FAKE' if pc > 0.5 else 'REAL'
+                })
+            agg = aggregate_chunk_predictions(chunk_results)
+            p_fake = agg['avg_fake_prob']
+            chunk_info = f"chunks={agg['num_chunks']} mean={agg['avg_fake_prob']:.4f} max={agg['max_fake_prob']:.4f}"
+
     lower = adaptive_thr - margin
     upper = adaptive_thr + margin
+    
     if p_fake < lower:
-        pred_int=0
-        certainty='certain'
+        pred_idx = LABEL_REAL
+        certainty = 'certain'
     elif p_fake > upper:
-        pred_int=1
-        certainty='certain'
+        pred_idx = LABEL_FAKE
+        certainty = 'certain'
     else:
-        pred_int=-1
-        certainty='uncertain'
-    if flipped:
-        label_map={0:'Real',1:'Fake',-1:'Uncertain'}
-    else:
-        label_map={0:'Fake',1:'Real',-1:'Uncertain'}
-    label = label_map[pred_int]
+        pred_idx = -1
+        certainty = 'uncertain'
+        
+    label = LABEL_STR_MAP.get(pred_idx, 'UNCERTAIN')
+    
     if return_prob:
         return label, p_fake
+
     # Print details
     vocab = vectorizer.vocabulary_
     oov = sum(1 for t in tokens if t not in vocab)
     oov_ratio = (oov/token_len) if token_len else 0.0
-    print('-- Prediction --')
+    print('-- Prediction (Canonical: 0=REAL, 1=FAKE) --')
     print(f"Label: {label} | P(Fake)={p_fake:.4f} | Thr={adaptive_thr:.3f} | {certainty}")
+    if debug:
+        print(f"[DEBUG] Raw P(Fake): {p_fake}")
     print(f"Band: [{lower:.3f},{upper:.3f}] Margin={margin}")
     if chunk_info:
         print('Chunk info:', chunk_info)
     print('-- Token Stats --')
     print(f"Chars: {len(sample)} | Tokens: {token_len} | Unique: {len(set(tokens))} | OOV: {oov} ({oov_ratio*100:.2f}% )")
-    if pred_int==-1:
+    if pred_idx == -1:
         print('NOTE: In uncertainty band.')
     return label
 
@@ -160,8 +200,8 @@ def predict_with_model(model, vectorizer, sample, threshold=0.5, flipped=True, r
 def interactive(run_dir, threshold, raw=False, margin=0.02, use_chunk=False, adaptive=False):
     print(f"Using run directory: {run_dir}")
     meta = load_metadata(run_dir)
-    flipped = meta.get('label_flip_applied', False)
-    print(f"Label flip applied: {flipped}")
+    # The 'flipped' metadata is archived. We now enforce canonical mapping.
+    print("Notice: Enforcing canonical mapping (0=REAL, 1=FAKE).")
     if os.path.exists(os.path.join(run_dir, 'tfidf_vectorizer.pkl')):
         vec_path = os.path.join(run_dir, 'tfidf_vectorizer.pkl')
     else:
@@ -208,7 +248,7 @@ def interactive(run_dir, threshold, raw=False, margin=0.02, use_chunk=False, ada
                 break
             if not text:
                 continue
-            predict_with_model(model, vectorizer, text, threshold=threshold, flipped=flipped,
+            predict_with_model(model, vectorizer, text, threshold=threshold,
                                margin=margin, use_chunking=use_chunk, length_bins=bins)
 
 
@@ -220,8 +260,8 @@ def main():
     parser.add_argument('--margin', type=float, default=0.02, help='Uncertainty margin.')
     parser.add_argument('--chunk', action='store_true', help='Enable chunking aggregation.')
     parser.add_argument('--adaptive', action='store_true', help='Enable adaptive length thresholds.')
-    parser.add_argument('--chunk_size', type=int, default=250, help='Chunk size tokens.')
-    parser.add_argument('--chunk_overlap', type=int, default=50, help='Chunk overlap tokens.')
+    parser.add_argument('--chunk_size', type=int, default=25, help='Chunk size tokens.')
+    parser.add_argument('--chunk_overlap', type=int, default=10, help='Chunk overlap tokens.')
     args = parser.parse_args()
     runs = discover_runs()
     if not runs:
