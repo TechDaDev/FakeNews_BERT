@@ -679,10 +679,11 @@ if detect_btn:
                             outputs_chunk = model_bert(**inputs_chunk)
                             chunk_res = decode_predictions(outputs_chunk.logits, temperature=TEMPERATURE, debug=debug_mode)
                             
+                        # Build expected format for aggregate_chunk_predictions
                         chunk_results.append({
-                            'fake_prob': chunk_res['fake_probability'],
-                            'real_prob': chunk_res['real_probability'],
-                            'label': chunk_res['predicted_label'],
+                            'fake_probability': chunk_res['fake_probability'],
+                            'real_probability': chunk_res['real_probability'],
+                            'predicted_label': chunk_res['predicted_label'],
                             'text': chunk_text,
                             'res_dict': chunk_res
                         })
