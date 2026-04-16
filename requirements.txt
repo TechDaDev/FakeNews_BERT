@@ -4,8 +4,8 @@ scikit-learn
 joblib
 matplotlib
 torch
+torchvision
 transformers
-tensorflow
 tqdm
 streamlit
 beautifulsoup4
